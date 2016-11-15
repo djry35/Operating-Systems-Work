@@ -1,0 +1,1 @@
+/usr/bin/cc  -std=c99 -Wall -Werror -g    CMakeFiles/bitmap_tester.dir/test/test.c.o  -o bitmap_tester -rdynamic 

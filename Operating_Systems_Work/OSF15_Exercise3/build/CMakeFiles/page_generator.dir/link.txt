@@ -1,0 +1,1 @@
+/usr/bin/c++   -std=c++0x -Werror -O3    CMakeFiles/page_generator.dir/src/page_generator.cpp.o  -o page_generator -rdynamic 

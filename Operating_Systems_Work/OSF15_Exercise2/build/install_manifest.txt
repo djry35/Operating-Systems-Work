@@ -1,0 +1,2 @@
+/usr/local/lib/libblock_store.so
+/usr/local/include/block_store.h

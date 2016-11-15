@@ -1,0 +1,28 @@
+#IncludeRegexLine: ^[ 	]*#[ 	]*(include|import)[ 	]*[<"]([^">]+)([">])
+
+#IncludeRegexScan: ^.*$
+
+#IncludeRegexComplain: ^$
+
+#IncludeRegexTransform: 
+
+/home/djry35/OSF15_Project2/include/FonefiveFS.h
+sys/types.h
+-
+stdint.h
+-
+time.h
+-
+stdio.h
+-
+block_store.h
+-
+
+/home/djry35/OSF15_Project2/src/FonefiveFS.c
+../include/FonefiveFS.h
+/home/djry35/OSF15_Project2/include/FonefiveFS.h
+string.h
+-
+limits.h
+-
+

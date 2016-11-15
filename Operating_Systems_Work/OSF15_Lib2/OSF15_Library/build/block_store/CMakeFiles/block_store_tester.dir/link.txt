@@ -1,0 +1,1 @@
+/usr/bin/cc  -std=c99 -Wall -Werror -g    CMakeFiles/block_store_tester.dir/test/test.c.o  -o block_store_tester -rdynamic ../bitmap/libbitmap.so -Wl,-rpath,/home/djry35/OSF15_Lib2/OSF15_Library/build/bitmap 

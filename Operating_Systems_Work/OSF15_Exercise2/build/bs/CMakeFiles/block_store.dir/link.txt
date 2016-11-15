@@ -1,0 +1,1 @@
+/usr/bin/cc  -fPIC -std=c99 -Wall -Werror -g -O0   -shared -Wl,-soname,libblock_store.so -o libblock_store.so CMakeFiles/block_store.dir/src/block_store.c.o /usr/local/lib/libbitmap.so -Wl,-rpath,/usr/local/lib: 

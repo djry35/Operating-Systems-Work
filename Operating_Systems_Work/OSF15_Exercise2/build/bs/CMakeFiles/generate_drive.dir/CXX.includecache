@@ -1,0 +1,24 @@
+#IncludeRegexLine: ^[ 	]*#[ 	]*(include|import)[ 	]*[<"]([^">]+)([">])
+
+#IncludeRegexScan: ^.*$
+
+#IncludeRegexComplain: ^$
+
+#IncludeRegexTransform: 
+
+/home/djry35/OSF15_Exercise2/bs/src/generate_drive.cpp
+iostream
+-
+fstream
+-
+random
+-
+cstdint
+-
+new
+-
+cstring
+-
+chrono
+-
+

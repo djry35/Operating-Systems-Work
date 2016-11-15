@@ -1,0 +1,4 @@
+/home/djry35/OSF15_Library/build/bitmap/CMakeFiles/bitmap.dir
+/home/djry35/OSF15_Library/build/bitmap/CMakeFiles/bitmap_tester.dir
+/home/djry35/OSF15_Library/build/dyn_array/CMakeFiles/dyn_array.dir
+/home/djry35/OSF15_Library/build/dyn_array/CMakeFiles/dyn_array_tester.dir

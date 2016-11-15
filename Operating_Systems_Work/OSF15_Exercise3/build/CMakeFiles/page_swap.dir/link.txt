@@ -1,0 +1,1 @@
+/usr/bin/cc  -fPIC -g -std=c99 -Werror   -shared -Wl,-soname,libpage_swap.so -o libpage_swap.so CMakeFiles/page_swap.dir/src/page_swap.c.o /usr/local/lib/libblock_store.so /usr/local/lib/libdyn_array.so -Wl,-rpath,/usr/local/lib: 

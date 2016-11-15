@@ -1,0 +1,3 @@
+/home/djry35/OSF15_Exercise2/build/bs/CMakeFiles/block_store.dir
+/home/djry35/OSF15_Exercise2/build/bs/CMakeFiles/bs_tester.dir
+/home/djry35/OSF15_Exercise2/build/bs/CMakeFiles/generate_drive.dir

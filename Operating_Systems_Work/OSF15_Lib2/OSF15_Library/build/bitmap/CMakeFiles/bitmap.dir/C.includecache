@@ -1,0 +1,26 @@
+#IncludeRegexLine: ^[ 	]*#[ 	]*(include|import)[ 	]*[<"]([^">]+)([">])
+
+#IncludeRegexScan: ^.*$
+
+#IncludeRegexComplain: ^$
+
+#IncludeRegexTransform: 
+
+/home/djry35/OSF15_Lib2/OSF15_Library/bitmap/include/bitmap.h
+stdint.h
+-
+stdlib.h
+-
+stddef.h
+-
+stdbool.h
+-
+stdarg.h
+-
+string.h
+-
+
+/home/djry35/OSF15_Lib2/OSF15_Library/bitmap/src/bitmap.c
+../include/bitmap.h
+/home/djry35/OSF15_Lib2/OSF15_Library/bitmap/include/bitmap.h
+

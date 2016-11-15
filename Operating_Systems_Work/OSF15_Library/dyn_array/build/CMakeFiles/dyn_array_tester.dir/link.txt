@@ -1,0 +1,1 @@
+/usr/bin/cc   -std=c99 -Wall -Werror -g    CMakeFiles/dyn_array_tester.dir/test/tester.c.o  -o dyn_array_tester -rdynamic 

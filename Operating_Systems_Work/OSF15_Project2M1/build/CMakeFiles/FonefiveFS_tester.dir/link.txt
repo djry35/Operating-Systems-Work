@@ -1,0 +1,1 @@
+/usr/bin/cc  -std=gnu99 -Wall -Werror -g -O0    CMakeFiles/FonefiveFS_tester.dir/test/test.c.o  -o FonefiveFS_tester -rdynamic /usr/local/lib/libblock_store.so -Wl,-rpath,/usr/local/lib 

@@ -1,0 +1,38 @@
+#IncludeRegexLine: ^[ 	]*#[ 	]*(include|import)[ 	]*[<"]([^">]+)([">])
+
+#IncludeRegexScan: ^.*$
+
+#IncludeRegexComplain: ^$
+
+#IncludeRegexTransform: 
+
+/home/djry35/OSF15_Library/dyn_array/include/dyn_array.h
+stdbool.h
+-
+stddef.h
+-
+stdlib.h
+-
+string.h
+-
+stdint.h
+-
+
+/home/djry35/OSF15_Library/dyn_array/src/dyn_array.c
+../include/dyn_array.h
+/home/djry35/OSF15_Library/dyn_array/include/dyn_array.h
+
+/home/djry35/OSF15_Library/dyn_array/test/tester.c
+tests.h
+/home/djry35/OSF15_Library/dyn_array/test/tests.h
+
+/home/djry35/OSF15_Library/dyn_array/test/tests.h
+stdio.h
+-
+stdlib.h
+-
+string.h
+-
+../src/dyn_array.c
+/home/djry35/OSF15_Library/dyn_array/src/dyn_array.c
+

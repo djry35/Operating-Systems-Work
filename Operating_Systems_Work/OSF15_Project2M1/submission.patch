@@ -1,0 +1,2104 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index b5a65bf..0662698 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -5,15 +5,13 @@ set(CMAKE_OSX_SYSROOT "/") # Mac users will thank me
+ #set(CMAKE_VERBOSE_MAKEFILE ON)
+ set(CMAKE_COLOR_MAKEFILE ON)
+ 
+-set(CMAKE_C_FLAGS "-std=c99 -Wall -Werror -g -O0")
++set(CMAKE_C_FLAGS "-std=gnu99 -Wall -Werror -g -O0")
+ 
+ find_library(blockstore_lib block_store)
+ 
+ #find_library(bitmap_lib bitmap)
+ #find_library(dynarray_lib dyn_array)
+ 
+-message(FATAL_ERROR "Copy your selected spec to include/${PROJECT_NAME}.h and delete this line!")
+-
+ add_library(${PROJECT_NAME} SHARED src/${PROJECT_NAME}.c)
+ target_link_libraries(${PROJECT_NAME} ${blockstore_lib}) # Add other libs if you need them
+ set_target_properties(${PROJECT_NAME} PROPERTIES POSITION_INDEPENDENT_CODE ON)
+diff --git a/include/FonefiveFS.h b/include/FonefiveFS.h
+new file mode 100644
+index 0000000..aa57f1e
+--- /dev/null
++++ b/include/FonefiveFS.h
+@@ -0,0 +1,158 @@
++#ifndef FONEFIVE_H__
++#define FONEFIVE_H__
++
++#include <sys/types.h>
++#include <stdint.h>
++#include <time.h>
++#include <stdio.h>
++#include <block_store.h>
++// Probably other things
++#define FNAME_MAX 47
++#define DIR_REC_MAX 20
++
++
++typedef struct F15FS F15FS_t;
++typedef uint8_t inode_ptr_t; // inodes go from 0 - 255
++typedef uint32_t block_ptr_t; // 32-bit addressing, woo!
++
++
++// got 48 bytes to spare
++typedef struct {
++    uint32_t size; // Meaningless if it's a directory
++    uint32_t mode; // Not actually used
++    uint32_t c_time; // technically c_time is for modifications to mode and stuff... we'll use it as creation
++    uint32_t a_time;
++    uint32_t m_time;
++    inode_ptr_t parent; // handy!
++    uint8_t type; // haha, whoops, almost forgot it!
++    // I'd prefer it was the actual type enum, but the size of that is... hard to pin down
++    // Uhhh... 26 bytes left...
++
++        //gonna just slip this in there...
++        uint32_t lastByteRead;
++        uint32_t lastByteWritten;
++        //looks like this is 1 byte.
++        bool inUse;
++
++    uint8_t padding[15];
++} mdata_t;
++
++// it's an inode...
++typedef struct {
++    char fname[FNAME_MAX + 1];
++    mdata_t mdata;
++    block_ptr_t data_ptrs[8];
++} inode_;
++
++
++// Enum to differentiate between different kinds of files
++typedef enum {
++    REGULAR = 0x01, DIRECTORY = 0x02
++} ftype_t;
++
++// They are what they sound like, the max filename (not counting terminator)
++// and the number of things a directory can contain
++// Have to be exposed in the header for the record structure, which is annoying
++// But the other option is to add more functions to parse and handle that struct
++#define FNAME_MAX 47
++#define DIR_REC_MAX 20
++
++// It's a directory entry. Won't really be used internally
++typedef struct {
++	ftype_t ftype;
++	char fname[FNAME_MAX+1];
++} dir_entry_t;
++
++// It's a directory record, used to report directory contents to the user
++// Won't really be used internally
++typedef struct dir_rec {
++    unsigned total; // total valid entries
++    dir_entry_t contents[DIR_REC_MAX];
++} dir_rec_t;
++
++///
++/// Creates a new F15FS file at the given location
++/// \param fname The file to create (or overwrite)
++/// \return Error code, 0 for success, < 0 for error
++///
++int fs_format(const char *const fname);
++
++///
++/// Mounts the specified file and returns an F15FS object
++/// \param fname the file to load
++/// \return An F15FS object ready to use, NULL on error
++///
++F15FS_t *fs_mount(const char *const fname);
++
++/// Unmounts, closes, and destructs the given object,
++///  saving all unwritten contents (if any) to file
++/// \param fs The F15FS file
++/// \return 0 on success, < 0 on error
++///
++int fs_unmount(F15FS_t *fs);
++
++///
++/// Creates a new file in the given F15FS object
++/// \param fs the F15FS file
++/// \param fname the file to create
++/// \param ftype the type of file to create
++/// \return 0 on success, < 0 on error
++///
++int fs_create_file(F15FS_t *const fs, const char *const fname, const ftype_t ftype);
++
++///
++/// Returns the contents of a directory
++/// \param fs the F15FS file
++/// \param fname the file to query
++/// \param records the record object to fill
++/// \return 0 on success, < 0 on error
++///
++int fs_get_dir(const F15FS_t *const fs, const char *const fname, dir_rec_t *const records);
++
++///
++/// Writes nbytes from the given buffer to the specified file and offset
++/// \param fs the F15FS file
++/// \param fname the name of the file
++/// \param data the buffer to read from
++/// \param nbyte the number of bytes to write
++/// \param offset the offset in the file to begin writing to
++/// \return ammount written, < 0 on error
++///
++ssize_t fs_write_file(F15FS_t *const fs, const char *const fname, const void *data, size_t nbyte, size_t offset);
++
++///
++/// Reads nbytes from the specified file and offset to the given data pointer
++/// \param fs the F15FS file
++/// \param fname the name of the file to read from
++/// \param data the buffer to write to
++/// \param nbyte the number of bytes to read
++/// \param offset the offset in the file to begin reading from
++/// \return ammount read, < 0 on error
++///
++ssize_t fs_read_file(F15FS_t *const fs, const char *const fname, void *data, size_t nbyte, size_t offset);
++
++///
++/// Removes a file. (Note: Directories cannot be deleted unless empty)
++/// \param fs the F15FS file
++/// \param fname the file to remove
++/// \return 0 on sucess, < 0 on error
++///
++int fs_remove_file(F15FS_t *const fs, const char *const fname);
++
++///
++/// Moves the file from the source name to the destination name
++/// \param fs the F15FS file
++/// \param fname_src the file to move
++/// \param fname_dst the file's new location
++/// \return 0 on success, < 0 on error
++///
++int fs_move_file(F15FS_t *const fs, const char *const fname_src, const char *const fname_dst);
++
++uint32_t findBlockInFS(F15FS_t* const fs, size_t block, uint8_t*);
++
++uint8_t parseFile(F15FS_t* const fs, char* const fname);
++
++int8_t extractNames(const char* fname, char* parent, char* child);
++
++bool doesExist(const F15FS_t* const fs, const char* fname, ftype_t ftype, uint8_t toggle);
++#endif
+diff --git a/include/FonefiveFS_basic.h b/include/FonefiveFS_basic.h
+index ea7d234..e1999dd 100644
+--- a/include/FonefiveFS_basic.h
++++ b/include/FonefiveFS_basic.h
+@@ -1,3 +1,6 @@
++#ifndef FONEFIVE_H__
++#define FONEFIVE_H__
++
+ #include <sys/types.h>
+ #include <stdint.h>
+ #include <time.h>
+@@ -28,7 +31,7 @@ typedef struct {
+ // It's a directory record, used to report directory contents to the user
+ // Won't really be used internally
+ typedef struct dir_rec {
+-    int total; // total valid entries
++    unsigned total; // total valid entries
+     dir_entry_t contents[DIR_REC_MAX];
+ } dir_rec_t;
+ 
+@@ -73,7 +76,6 @@ int fs_get_dir(const F15FS_t *const fs, const char *const fname, dir_rec_t *cons
+ 
+ ///
+ /// Writes nbytes from the given buffer to the specified file and offset
+-/// Increments the read/write position of the descriptor by the ammount written
+ /// \param fs the F15FS file
+ /// \param fname the name of the file
+ /// \param data the buffer to read from
+@@ -85,7 +87,6 @@ ssize_t fs_write_file(F15FS_t *const fs, const char *const fname, const void *da
+ 
+ ///
+ /// Reads nbytes from the specified file and offset to the given data pointer
+-/// Increments the read/write position of the descriptor by the ammount read
+ /// \param fs the F15FS file
+ /// \param fname the name of the file to read from
+ /// \param data the buffer to write to
+@@ -97,7 +98,6 @@ ssize_t fs_read_file(F15FS_t *const fs, const char *const fname, void *data, siz
+ 
+ ///
+ /// Removes a file. (Note: Directories cannot be deleted unless empty)
+-/// This closes any open descriptors to this file
+ /// \param fs the F15FS file
+ /// \param fname the file to remove
+ /// \return 0 on sucess, < 0 on error
+@@ -106,10 +106,11 @@ int fs_remove_file(F15FS_t *const fs, const char *const fname);
+ 
+ ///
+ /// Moves the file from the source name to the destination name
+-/// Note: This does not invalidate any file descriptors
+ /// \param fs the F15FS file
+ /// \param fname_src the file to move
+ /// \param fname_dst the file's new location
+ /// \return 0 on success, < 0 on error
+ ///
+ int fs_move_file(F15FS_t *const fs, const char *const fname_src, const char *const fname_dst);
++
++#endif
+diff --git a/include/FonefiveFS_descriptor.h b/include/FonefiveFS_descriptor.h
+index 8208583..8759492 100644
+--- a/include/FonefiveFS_descriptor.h
++++ b/include/FonefiveFS_descriptor.h
+@@ -1,3 +1,6 @@
++#ifndef FONEFIVE_H__
++#define FONEFIVE_H__
++
+ #include <sys/types.h>
+ #include <stdint.h>
+ #include <time.h>
+@@ -33,7 +36,7 @@ typedef {
+ // It's a directory record, used to report directory contents to the user
+ // Won't really be used internally
+ typedef struct dir_rec {
+-    int total; // total valid entries
++    unsigned total; // total valid entries
+     dir_entry_t contents[DIR_REC_MAX];
+ } dir_rec_t;
+ 
+@@ -112,7 +115,7 @@ int fs_seek_file(F15FS_t *const fs, const int fd, const off_t offset, const seek
+ /// \param offset the offset in the file to begin writing to
+ /// \return ammount written, < 0 on error
+ ///
+-ssize_t fs_write_file(F15FS_t *const fs, const int fd, const void *data, size_t nbyte, size_t offset);
++ssize_t fs_write_file(F15FS_t *const fs, const int fd, const void *data, size_t nbyte);
+ 
+ ///
+ /// Reads nbytes from the specified file and offset to the given data pointer
+@@ -124,7 +127,7 @@ ssize_t fs_write_file(F15FS_t *const fs, const int fd, const void *data, size_t
+ /// \param offset the offset in the file to begin reading from
+ /// \return ammount read, < 0 on error
+ ///
+-ssize_t fs_read_file(F15FS_t *const fs, const int fd, void *data, size_t nbyte, size_t offset);
++ssize_t fs_read_file(F15FS_t *const fs, const int fd, void *data, size_t nbyte);
+ 
+ ///
+ /// Removes a file. (Note: Directories cannot be deleted unless empty)
+@@ -144,3 +147,5 @@ int fs_remove_file(F15FS_t *const fs, const char *const fname);
+ /// \return 0 on success, < 0 on error
+ ///
+ int fs_move_file(F15FS_t *const fs, const char *const fname_src, const char *const fname_dst);
++
++#endif
+diff --git a/src/FonefiveFS.c b/src/FonefiveFS.c
+index 3b8d171..123c953 100644
+--- a/src/FonefiveFS.c
++++ b/src/FonefiveFS.c
+@@ -1,2 +1,890 @@
+ #include "../include/FonefiveFS.h"
++#include <string.h>
++#include <limits.h>
++
++// redefine because it doesn't hurt and it's good to have for refrence
++typedef enum {NONE = 0x00, FILE_LINKED = 0x01, FILE_BASED = 0x02, DIRTY = 0x04, ALL = 0xFF} BS_FLAGS;
++
++//it never likes it when this definition is not around.
++struct block_store {
++    int fd; // R/W position never guarenteed, flag indicates link state (attempt to set it to -1 when not in use as well)
++    BS_FLAGS flags;
++    bitmap_t *dbm;
++    bitmap_t *fbm;
++    uint8_t *data_blocks;
++};
++
++
++
++/*
++    typedef enum {
++        REGULAR = 0x01, DIRECTORY = 0x02
++    } ftype_t;
++
++    // It's a directory entry. Won't really be used internally
++    typedef {
++        ftype_t ftype;
++        char fname[FNAME_MAX+1];
++    } dir_entry_t;
++
++    // It's a directory record, used to report directory contents to the user
++    // Won't really be used internally
++    typedef struct dir_rec {
++        int total; // total valid entries
++        dir_entry_t contents[DIR_REC_MAX];
++    } dir_rec_t;
++*/
++
++
++// That's it?
++struct F15FS {
++    block_store_t *bs;
++};
++
++typedef inode_ inode_t;
++
++// directory entry, found inside directory blocks
++typedef struct {
++    char fname[FNAME_MAX + 1];
++    inode_ptr_t inode;
++} dir_ent_t;
++
++// Sadly, not the same size as an mdata_t, but it's close! 44 Bytes
++// They can really be cast back and forth safely since the end is padding anyway
++// But if you have an array of them, it could get messy, but why would you ever have one of those?
++typedef struct {
++    uint32_t size;
++    // Number of VALID entries, ENTRIES ARE NOT CONTIGUOUS
++    // Which means all entries will need to be scanned every time
++    // Maintaining contiguity can be done, and in a transaction safe way, but it's extra work
++
++    // All metadata is contained in the inode, except for size
++    // Which leaves... 40B
++    uint8_t padding[40];
++} dir_mdata_t;
++
++// A directory file. Directories only have one for simplicity
++typedef struct {
++    dir_mdata_t mdata;
++    dir_ent_t entries[DIR_REC_MAX];
++} dir_block_t;
++
++
++// size of data block
++#define BLOCK_SIZE 1024
++
++typedef uint8_t data_block_t[BLOCK_SIZE]; // data's just data, also c is weird
++
++// total inode blocks
++#define INODE_BLOCK_TOTAL 32
++
++// Number of inodes in a block
++#define INODES_PER_BLOCK (BLOCK_SIZE / sizeof(inode_t))
++
++// Total number of inodes
++#define INODE_TOTAL ((INODE_BLOCK_TOTAL * BLOCK_SIZE) / sizeof(inode_t))
++
++// Inode blocks start at 8 and go to 40
++#define INODE_BLOCK_OFFSET 8
++
++#define DATA_BLOCK_OFFSET (INODE_BLOCK_OFFSET + INODE_BLOCK_TOTAL)
++
++// 6 direct blocks per inode
++#define DIRECT_TOTAL 6
++// number of directs in an indirect, same as in an inode
++#define INDIRECT_TOTAL (BLOCK_SIZE / sizeof(block_ptr_t))
++// number of directs in a full double indirect, same as in an inode
++#define DBL_INDIRECT_TOTAL (INDIRECT_TOTAL * INDIRECT_TOTAL)
++
++// I did the math... but it can also be calculated
++#define FILE_SIZE_MAX ((DIRECT_TOTAL + INDIRECT_TOTAL + DBL_INDIRECT_TOTAL) * BLOCK_SIZE)
++
++// Total available data blocks since the block_store is smaller than the indexing allows
++// Might not be used
++#define DATA_BLOCK_MAX 65536
++
++// It should really be less (about 12100)
++// But we'll overallocate, preferably not on the stack...
++#define FS_PATH_MAX 13000
++
++// Calcs what block an inode is in
++#define INODE_TO_BLOCK(inodeT) (((inodeT) >> 3) + INODE_BLOCK_OFFSET)
++
++// Calcs the index an inode is at within a block
++#define INODE_INNER_IDX(inodeT) ((inodeT) & 0x07)
++
++// Calcs the offset of an inode because I made block_store too kind
++// and I can't undo it. Immagine how much of a pain it'd be if you could only read/write entire blocks
++// (...like how actual block devices work)
++#define INODE_INNER_OFFSET(inodeT) (INODE_INNER_IDX(inodeT) * sizeof(inode_t))
++
++// Converts a file position to a block index (note: not a block id. index 6 is the 6th block of the file)
++#define POSITION_TO_BLOCK_INDEX(position) ((position) >> 10)
++
++// Position within a block
++#define POSITION_TO_INNER_OFFSET(position) ((position) & 0x3FF)
++
++// tells you if the given block index makes sense
++#define BLOCK_IDX_VALID(block_idx) ((block_idx) >= DATA_BLOCK_OFFSET && (block_idx) < DATA_BLOCK_MAX)
++
++// Checks that an inode is the specified type
++// Used because the mdata type won't be the same size as the enum and that'll irritate the compiler probably
++#define INODE_IS_TYPE(inode_ptr, file_type) ((inode_ptr)->mdata.type & (file_type))
++
++// Because you can't increment an incomplete type
++// And writing out the cast every time gets tiring
++#define INCREMENT_VOID_PTR(v_ptr, increment) (((uint8_t *)v_ptr) + (increment))
++
++
++
++typedef struct {
++	uint8_t inode_idx;
++	bool isValid;
++	//implement at the end...this might be messy.
++	uint8_t Oflag;
++	uint8_t mode;
++} openFile;
++
++typedef struct {
++	//guess all files could be open at the same time, technically?	
++	openFile table[INODE_TOTAL];
++} openFileTable;
++
++//FOR BONUS
++openFileTable openFiles;
++
++// Casual warning, if it hasn't been used yet, it might not work yet.
++// Also, my bugs are your bugs if you decide to use this. be careful.
++
++//
++// Creates a new F15FS file at the given location
++// param fname The file to create (or overwrite)
++// return Error code, 0 for success, < 0 for error
++//
++// This is why gotos for resource unwinding is nice. Look at this mess.
++int fs_format(const char *const fname) {
++    // Gotta do a create and then a link
++    if (fname && fname[0]) { // Well, it works.
++        block_store_t *bs = block_store_create();
++        if (bs) {
++            block_store_link(bs, fname);
++            if (block_store_errno() == BS_OK) {
++                // Ok, made a block store, linked and made the file, now to fill out the inodes
++                //  and by that I mean, request the inode table and a data block
++                //  and fill out root and its data block
++                bool success = true;
++                for (size_t i = INODE_BLOCK_OFFSET; i < (INODE_BLOCK_OFFSET + 32); ++i) {
++                    success &= block_store_request(bs, i); // haha! C standard says that true is 1, so this works
++                }
++                if (success) {
++                    size_t root_file_block = block_store_allocate(bs); // don't really care where it goes
++                    if (root_file_block) {
++                        // Ok, NOW we're good... assuming all the writes work. Ugh.
++                        inode_t root;
++                        dir_block_t root_dir;
++                        memset(&root, 0, sizeof(inode_t));
++                        memset(&root_dir, 0, sizeof(dir_block_t));
++
++                        root.fname[0] = '/'; // Technically probably an invalid name, but less invalid than an empty string
++                        root.mdata.size = 0; // Uhhh...? Not really going to use it in a directory
++                        root.mdata.mode = 0; // it's not being used, who cares.
++                        root.mdata.c_time = time(NULL); // Time in seconds since epoch. 32-bit time is a problem for 2038
++                        root.mdata.a_time = time(NULL); // I guess technically never?
++                        root.mdata.m_time = time(NULL); // technically later, but ehhh.
++                        root.mdata.parent = 0; // Us!
++                        root.mdata.type = (uint8_t) DIRECTORY;
++                        root.data_ptrs[0] = root_file_block; // the rest have init to 0
++			root.mdata.inUse = true;
++                        root_dir.mdata.size = 0; // Uhhh...?
++
++                        if (block_store_write(bs, INODE_TO_BLOCK(0), &root, sizeof(inode_t), 0) == sizeof(inode_t) &&
++                                block_store_write(bs, root_file_block, &root_dir, sizeof(dir_block_t), 0) == sizeof(dir_block_t)) {
++                            // technically we could loop till it goes, but the way it's written, if it didn't work the first time,
++                            //  something's super broke
++
++                            // Ok... Done? Req'd the table, setup root and its folder, wrote it all, time to sync.
++                            block_store_destroy(bs, BS_FLUSH);
++                            // flushing sets the block_store_errno() to the flush status, so...
++                            if (block_store_errno() == BS_OK) {
++                                // FINALLY.
++                                return 0;
++                            }
++                            fprintf(stderr, "Flush died, block_store says: %s\n", block_store_strerror(block_store_errno()));
++                            // can't destruct because we already did
++                            return -1;
++                        }
++                        fprintf(stderr, "Something didn't write, block_store says: %s\n", block_store_strerror(block_store_errno()));
++                        block_store_destroy(bs, BS_FLUSH); // Flushing might not work, but if it does, it might have nice debug info
++                        return -1;
++                    }
++                    fprintf(stderr, "Couldn't request root file, block_store says: %s\n", block_store_strerror(block_store_errno()));
++                    block_store_destroy(bs, BS_FLUSH);
++                    return -1;
++                }
++                fprintf(stderr, "Couldn't request inode table, block_store says: %s\n", block_store_strerror(block_store_errno()));
++                block_store_destroy(bs, BS_FLUSH);
++                return -1;
++            }
++            fprintf(stderr, "Couldn't link block_store, block_store says: %s\n", block_store_strerror(block_store_errno()));
++            block_store_destroy(bs, BS_NO_FLUSH);
++            return -1;
++        }
++        fprintf(stderr, "Couldn't create block_store, block_store says: %s\n", block_store_strerror(block_store_errno()));
++        return -1;
++    }
++    fprintf(stderr, "Filename \"%s\" invalid\n", fname); // It'll either print "(null)" or ""
++    return -1;
++}
++
++//
++// Mounts the specified file and returns an F15FS object
++// param fname the file to load
++// return An F15FS object ready to use, NULL on error
++//
++F15FS_t *fs_mount(const char *const fname) {
++    // open the bs object and... that's it?
++    F15FS_t *fs = malloc(sizeof(F15FS_t));
++    if (fs) {
++        // this will catch all fname issues
++        fs->bs = block_store_import(fname);
++        if (fs->bs) {
++            if (block_store_errno() == BS_OK) {
++                return fs;
++            }
++            fprintf(stderr, "Issue with import (link problem?), block_store says: %s", block_store_strerror(block_store_errno()));
++            block_store_destroy(fs->bs, BS_NO_FLUSH);
++            free(fs);
++            return NULL;
++        }
++        fprintf(stderr, "Couldn't open file \"%s\", block_store says: %s\n", fname, block_store_strerror(block_store_errno()));
++        free(fs);
++        return NULL;
++    }
++    fprintf(stderr, "Couldn't malloc fs object");
++    return NULL;
++}
++
++// Unmounts, closes, and destructs the given object,
++//  saving all unwritten contents (if any) to file
++// param fs The F15FS file
++// return 0 on success, < 0 on error. Object is always destructed, if it exists
++//
++int fs_unmount(F15FS_t *fs) {
++    if (fs) {
++        block_store_destroy(fs->bs, BS_FLUSH);
++        free(fs);
++        if (block_store_errno() == BS_OK) {
++            return 0;
++        }
++        fprintf(stderr, "BS_DESTROY failed to flush? Block_store says: %s", block_store_strerror(block_store_errno()));
++    }
++    return -1;
++}
++
++/*
++Takes data, the size of the data, the offset to start writing to the file, and the filename. Writes the data out to that file.
++*/
++ssize_t fs_write_file(F15FS_t *const fs, const char *const fname, const void *data, size_t nbyte, size_t offset)
++{
++	//error check
++	if(!fs || !fs->bs || !fs->bs->dbm || !fs->bs->fbm || !fname || !fs->bs->data_blocks)
++	{
++		//eh? better than this?
++		return -1;
++	}
++	//size_t totalWritten = 0;
++	
++	//find the file, make sure it's okay
++	inode_t inode;
++
++	char* child = malloc(sizeof(char)*FNAME_MAX);
++	char* parent = malloc(sizeof(char)*FNAME_MAX);
++	uint8_t check = extractNames(fname, parent, child);
++	if(check < 0)
++	{
++		return check;
++	}
++
++	//the file should exist and not be a directory, I assume you can't write to a directory.		
++	if(!doesExist(fs, fname, DIRECTORY, 0))
++	{
++		return -1;
++	}
++
++	uint8_t i;
++	for(i = 0; i < INODE_TOTAL; i++)
++	{	
++		block_store_read(fs->bs, INODE_TO_BLOCK(i), (void*)&inode, sizeof(inode_t), INODE_INNER_OFFSET(i));
++		if(strcmp(inode.fname, parent) == 0)
++		{
++			//sweet, read the correct inode in.
++			break;
++		}
++	}
++	
++	//should not get in here, for testing purposes
++	if(i == INODE_TOTAL)
++	{
++		return -1;
++	}	
++
++	bool atEOF = false;
++	uint8_t util = 0;// = data;
++	uint8_t whichBlock;
++	while(1)
++	{
++		//initial search for the block we're writing to.
++		size_t block = POSITION_TO_BLOCK_INDEX(offset);
++		size_t blockOffset = POSITION_TO_INNER_OFFSET(offset);
++		block_ptr_t blockRequested = findBlockInFS(fs, block, &whichBlock);
++
++		if(inode.mdata.size < nbyte + blockOffset)
++		{
++			//We're at EOF, sooooooo....
++			atEOF = true;
++		}
++		
++		if(atEOF)
++		{
++			//make a new block/finish old block
++			
++			//finish old block
++			block_store_write(fs->bs, blockRequested, data + util, BLOCK_SIZE - blockOffset, blockOffset);
++			nbyte -= (BLOCK_SIZE - blockOffset);
++			
++
++			//start a new block and place it in inode
++			size_t newBlock = block_store_allocate(fs->bs);
++			//...god why. Is there no other way to know where it goes?
++			if(whichBlock < DIRECT_TOTAL - 1)
++			{
++				inode.data_ptrs[whichBlock+1] = newBlock;
++			}
++			else if(whichBlock == DIRECT_TOTAL - 1)
++			{
++				inode.data_ptrs[6] = block_store_allocate(fs->bs);
++				block_store_write(fs->bs, inode.data_ptrs[6], (void*)&newBlock, sizeof(size_t), 0);
++			}
++			else if(whichBlock < INDIRECT_TOTAL - 2 + DIRECT_TOTAL)
++			{
++				data_block_t buffer;
++				block_store_read(fs->bs, inode.data_ptrs[6],(void*)buffer, BLOCK_SIZE, 0);
++				buffer[whichBlock + 1] = newBlock;
++				block_store_write(fs->bs, inode.data_ptrs[6], (void*)buffer, BLOCK_SIZE, 0); 	
++			}
++			else if(whichBlock == INDIRECT_TOTAL - 1 + DIRECT_TOTAL)
++			{
++				//that feeling when your mind is melting
++				inode.data_ptrs[7] = block_store_allocate(fs->bs);
++				size_t newIndirectNewBlock = block_store_allocate(fs->bs);
++				block_store_write(fs->bs, inode.data_ptrs[7], (void*)&newIndirectNewBlock, sizeof(size_t), 0);
++				block_store_write(fs->bs, newIndirectNewBlock, (void*)&newBlock, sizeof(size_t), 0);
++			}
++			else if(whichBlock < DBL_INDIRECT_TOTAL - 2 + DIRECT_TOTAL)
++			{
++				data_block_t buffer;
++				block_store_read(fs->bs, inode.data_ptrs[7], (void*)buffer, BLOCK_SIZE, 0);
++				if(whichBlock % (INODES_PER_BLOCK - 1 + INODE_BLOCK_TOTAL) == 0)
++				{
++					//...................
++					size_t newIndirectBlock = block_store_allocate(fs->bs);
++					block_store_write(fs->bs, newIndirectBlock, (void*)&newBlock, sizeof(size_t), 0);
++					block_store_write(fs->bs, inode.data_ptrs[7], (void*)&newIndirectBlock, sizeof(size_t), whichBlock / (INODES_PER_BLOCK - 1 + INODE_BLOCK_TOTAL));
++				}
++				else
++				{
++					size_t placeHolder = buffer[(whichBlock % (INODES_PER_BLOCK - 1 + INODE_BLOCK_TOTAL)) - 1];
++					//TODO: might be whichBlock%x, not whichBlock%x - 1.
++					block_store_read(fs->bs, buffer[(whichBlock % (INODES_PER_BLOCK - 1 + INODE_BLOCK_TOTAL))  - 1], (void*)buffer, BLOCK_SIZE, 0);
++					buffer[whichBlock-1] = newBlock;
++					block_store_write(fs->bs, placeHolder, (void*)buffer, BLOCK_SIZE, 0);
++				}
++				//10 bucks I got lost somewhere and screwed it up.
++			}
++			else
++			{
++				//error
++				//technically could also be reaching max file size. 
++				return -1;
++			}
++			//set up everything for the following checks, using the block we just added.
++ 			blockRequested = newBlock;
++			blockOffset = 0;
++			block += 1; 
++		}
++		if(blockOffset + nbyte <= BLOCK_SIZE-1)
++		{
++			//just write to the block if we're not filling it.
++			block_store_write(fs->bs, blockRequested, data + util, nbyte, blockOffset);
++			break;
++		}
++		else
++		{
++			//so this is here in case we're overriding data, so blocks will already be there to write to.
++			//Otherwise, that mess has to be gone through.
++			block_store_write(fs->bs, blockRequested, data + util, BLOCK_SIZE - blockOffset, blockOffset);
++			util += (BLOCK_SIZE - blockOffset);
++			nbyte -= (BLOCK_SIZE - blockOffset);
++			offset += (BLOCK_SIZE - blockOffset);
++			//find next block
++		}
++	}
++	//only achievable from the break, denoting that all writes were completed.
++	return 0;
++}
++
++//Reads nbyte bytes from the file with absolute path fname into data, starting at offset.
++ssize_t fs_read_file(F15FS_t *const fs, const char *const fname, void *data, size_t nbyte, size_t offset)
++{
++	//error check
++	if(!fs || !fs->bs || !fs->bs->dbm || !fs->bs->fbm || !fname || !fs->bs->data_blocks)
++	{
++		//eh? better than this?
++		return -1;
++	}
++	
++	
++	//find the file, make sure it's okay
++	//same as fs_write_file. Will put in a fxn if I have time.
++	inode_t inode;
++	char* child = malloc(sizeof(char)*FNAME_MAX);
++	char* parent = malloc(sizeof(char)*FNAME_MAX);
++	uint8_t check = extractNames(fname, parent, child);
++	if(check < 0)
++	{
++		return check;
++	}
++		
++	if(!doesExist(fs, fname, DIRECTORY, 0))
++	{
++		return -1;
++	}
++
++	uint8_t i;
++	for(i = 0; i < INODE_TOTAL; i++)
++	{	
++		block_store_read(fs->bs, INODE_TO_BLOCK(i), (void*)&inode, sizeof(inode_t), INODE_INNER_OFFSET(i));
++		if(strcmp(inode.fname, parent) == 0)
++		{
++			break;
++		}
++	}
++	
++	//should not get in here, for testing purposes
++	if(i == INODE_TOTAL)
++	{
++		return -1;
++	}
++	
++	uint8_t whichBlock;
++	bool atEOF = false;
++	void* util = data;
++	while(1)
++	{
++		//find the file block and offset, and use it to find the actual block and offset on the fs
++		size_t block = POSITION_TO_BLOCK_INDEX(offset);
++		size_t blockOffset = POSITION_TO_INNER_OFFSET(offset);
++		block_ptr_t blockRequested = findBlockInFS(fs, block, &whichBlock);
++		
++		if(inode.mdata.size < nbyte + offset)
++		{
++			//We're at EOF, sooooooo....
++			atEOF = true;
++		}
++		if(atEOF)
++		{
++			//read everything we can, I guess.
++			block_store_read(fs->bs, blockRequested, util, inode.mdata.size - (nbyte+offset), blockOffset);
++			//technically an error, I imagine.
++			return -1;
++		}
++		if(blockOffset + nbyte <= BLOCK_SIZE-1)
++		{
++			//if everything is in one block, just read the block.
++			block_store_read(fs->bs, blockRequested, util, nbyte, blockOffset);
++			break;
++		}
++		else
++		{
++			//so data bleeds to the next block, read everything we can, and wait to come back around with the next block.
++			block_store_read(fs->bs, blockRequested, util, BLOCK_SIZE - blockOffset, blockOffset);
++			util += (BLOCK_SIZE - blockOffset);
++			nbyte -= (BLOCK_SIZE - blockOffset);
++			offset += (BLOCK_SIZE - blockOffset);
++			//find next block
++		}
++	}
++	//gets here from the break in the loop, indicating reads have been done. 
++	return 0;
++}
++
++//creates a file of type ftype, at the absolute path fname.
++int fs_create_file(F15FS_t *const fs, const char *const fname, const ftype_t ftype)
++{
++	//error check
++	if(!fs || !fs->bs || !fs->bs->dbm || !fs->bs->fbm || !fs->bs->data_blocks)
++	{
++		//eh? better than this?
++		return -1;
++	}
++	if(ftype < 0 || ftype > 2)
++	{
++		return -2;
++	} 
++	if(!fname || !(fname && fname[0]))
++	{
++		return -3;
++	}
++	//just the first one I find I guess?
++	inode_t inode;
++	inode_t parentInode;
++
++	char* child = malloc(sizeof(char)*FNAME_MAX);
++	char* parent = malloc(sizeof(char)*FNAME_MAX);
++	int8_t check = extractNames(fname, parent, child);
++	if(check < 0)
++	{
++		return check;
++	}
++	
++	if(!doesExist(fs, fname, ftype, 1))
++	{
++		return -1;
++	}
++
++	uint8_t i;
++	//idk, in case I didn't find a parent
++	inode_ptr_t idxParent = -1;
++	//oh, well -1 in a uint8_t is 255. Hmm.
++	bool foundParent = false;
++	for(i = 0; i < INODE_TOTAL; i++)
++	{	
++		block_store_read(fs->bs, INODE_TO_BLOCK(i), (void*)&inode, sizeof(inode_t), INODE_INNER_OFFSET(i));
++						
++		if(strcmp(inode.fname, parent) == 0)
++		{
++			parentInode = inode;
++			idxParent = i;
++			foundParent = true;
++		}
++		if(!inode.mdata.inUse)
++		{
++			break;
++		}
++	}
++	if(i == INODE_TOTAL || !foundParent || parentInode.mdata.type == REGULAR)
++	{
++		return -1;
++	}
++	
++	inode.mdata.size = 0;
++	inode.mdata.parent = idxParent;
++	inode.mdata.type = ftype;
++	inode.mdata.inUse = true;
++	strcpy(inode.fname, child);
++	inode.data_ptrs[0] = block_store_allocate(fs->bs);
++	printf("creating file \"%s\" with parent node %d and type %d\n", inode.fname,
++		inode.mdata.parent, inode.mdata.type);
++	fs_write_file(fs, fname, (void*)&i, sizeof(uint8_t), parentInode.mdata.size);
++	block_store_write(fs->bs, INODE_TO_BLOCK(i), (void*)&inode, sizeof(inode_t), INODE_INNER_OFFSET(i));
++
++	return 0;
++}
++
++int fs_open_file(F15FS_t *const fs, const char * const fname)
++{
++	//error check
++	if(!fs || !fs->bs || !fs->bs->dbm || !fs->bs->fbm || !fname || !fs->bs->data_blocks)
++	{
++		//eh? better than this?
++		return -1;
++	}
++
++	//starting to rush, so for now it won't be in a fxn.	
++	inode_t inode;
++	char* child = malloc(sizeof(char)*FNAME_MAX);
++	char* parent = malloc(sizeof(char)*FNAME_MAX);
++	uint8_t check = extractNames(fname, parent, child);
++	if(check < 0)
++	{
++		return check;
++	}
++		
++	if(doesExist(fs, fname, DIRECTORY, 0))
++	{
++		return -1;
++	}
++
++	uint8_t i;
++	for(i = 0; i < INODE_TOTAL; i++)
++	{	
++		block_store_read(fs->bs, INODE_TO_BLOCK(i), (void*)&inode, sizeof(inode_t), INODE_INNER_OFFSET(i));
++		if(strcmp(inode.fname, parent) == 0)
++		{
++			break;
++		}
++	}
++	
++	//should not get in here, for testing purposes
++	if(i == INODE_TOTAL)
++	{
++		return -1;
++	}
++	
++
++	//should not be able to modify directory. 
++	if(inode.mdata.type == DIRECTORY)
++	{
++		//but can you read from it? Will assume not.
++		return -1;
++	}
++
++	//add the FD to the list of open FDs
++	
++	//but first, find an unused spot
++
++	//this was the index of the inode, hold onto it.
++	uint8_t inodeIdx = i;
++
++	for(i = 0; i < INODE_TOTAL; i++)
++	{
++		if(!openFiles.table[i].isValid)
++		{
++			//found an open one. Set it up.
++			openFiles.table[i].isValid = true;
++			openFiles.table[i].inode_idx = inodeIdx;
++			return i;
++		}
++	}
++	//no open spots in the open file table.
++	return -1;
++}
++
++
++/*
++Takes the file block number and finds the actual block number that contains data to be 
++read/written to. It also takes note of that block number and stores it for later use.
++
++I'm pretty sure that whichBlock ends up being a duplicate that's not really needed, but it made sense
++to me when I made it, so I'll leave it.
++
++Parameters:
++fs: a mounted file system
++block: the index of the block in the inode that is wanted
++whichBlock: a reference to hold the block number. Only used in fs_write_file
++return: an index to a block in the file system that has the next desired block of data, or -1 on error.
++
++*/
++block_ptr_t findBlockInFS(F15FS_t* const fs, size_t block, uint8_t* whichBlock)
++{
++		inode_t inode;
++		if(block < DIRECT_TOTAL)
++		{
++			*whichBlock = block;
++			return inode.data_ptrs[block];
++		}
++		else if(block < INDIRECT_TOTAL)
++		{
++			*whichBlock = block - DIRECT_TOTAL;
++			//read indirect
++			data_block_t buffer;
++			block_store_read(fs->bs, inode.data_ptrs[DIRECT_TOTAL], buffer, BLOCK_SIZE, 0);
++			//then get the block number we want
++			block_ptr_t tmp;
++			memcpy(&tmp, &buffer[(block - DIRECT_TOTAL)*sizeof(uint32_t)], sizeof(uint32_t));
++			return tmp;
++		}
++		else if(block < DBL_INDIRECT_TOTAL)
++		{
++			*whichBlock = block - INDIRECT_TOTAL;
++			//read double indirect
++			data_block_t buffer;
++			block_store_read(fs->bs, inode.data_ptrs[DIRECT_TOTAL + 1], buffer, BLOCK_SIZE, 0);
++			//get the block with the indirect pointers
++			block_ptr_t levelPtr;
++			memcpy(&levelPtr, &buffer[((DBL_INDIRECT_TOTAL - INDIRECT_TOTAL) % block)*sizeof(uint32_t)], sizeof(uint32_t));
++			block_store_read(fs->bs, levelPtr, buffer, BLOCK_SIZE, 0);
++			//then get the block number we want
++			block_ptr_t tmp;
++			memcpy(&tmp, &buffer[(block - INDIRECT_TOTAL)*sizeof(uint32_t)], sizeof(uint32_t));
++			return tmp;
++		}
++		else
++		{
++			//out of bounds...I don't think it should get here...?
++			return -1;
++		}
++}
++
++/*
++Takes in the full path name, and extracts the filename of the file in scope, as well as the name
++of its parent. Also determines if the actual pathnames are invalid.
++
++Parameters:
++tmpFname: the absolute path of the file in question
++parent: a reference to where the parent directory name will be housed
++child: a reference to where the absolute file name will be housed
++return: 0 if successfully extracted both the parent and child, or < 0 if error. 
++*/
++int8_t extractNames(const char* tmpFname, char* parent, char* child)
++{
++	//cause const char* things. 
++	char* fname = malloc(sizeof(char)*FNAME_MAX);
++	//this is if the absolute path is too long, which is what I interpreted FNAME_MAX as
++	if(strlen(tmpFname) > FNAME_MAX)
++	{
++		strcpy(fname, "ERROR\n");
++		return -1;
++	}
++	strcpy(fname, tmpFname);
++	char* token = strtok(fname, "/");
++	//this is if the file path is just "/", which I assume is not allowed, cause root is root
++	if(!token || *(token + 1) == '\0')
++	{
++		strcpy(fname, "ERROR\n");
++		return -1;
++	}
++	//set up initial strings, in case it's just "parent/child"
++	strcpy(parent, token);
++	strcpy(child, token);
++	bool isRoot = true;
++	while(1)
++	{
++		//cycle through, replacing parent and child as new ones are found
++		token = strtok(NULL, "/");
++		if(!token)
++		{
++			//eventually this ends, so it always returns 0 at this point.
++			if(isRoot) strcpy(parent, "/");
++			return 0;
++		}
++		else
++		{
++			//if FNAME_MAX was actually for absolute path, then it would be checked
++			//here, have a return value accordingly.
++			if(isRoot) isRoot = false;
++			else strcpy(parent, token);
++		}
++		strcpy(child, token);
++	}
++}
++
++int fs_get_dir(const F15FS_t *const fs, const char *const fname, dir_rec_t *const records)
++{
++	inode_t inode;	
++	//so this has to be greater than a uint8_t...interesting...	
++	uint16_t i;
++	for(i = 0; i < INODE_TOTAL; i++)
++	{	
++		block_store_read(fs->bs, INODE_TO_BLOCK(i), (void*)&inode, sizeof(inode_t), INODE_INNER_OFFSET(i));
++		if(strcmp(inode.fname, fname) == 0)
++		{
++			//this should trigger at some point, to indicate that we found
++			//the inode with the directory.
++			break;
++		}
++	}
++	if(i == INODE_TOTAL || inode.mdata.type == REGULAR)
++	{
++		return -1;
++	}
++
++	uint8_t idx;
++	inode_t tmp;
++	unsigned dirSize = 0;
++	uint8_t realIdx = 0;
++	for(i = 0; i < DIR_REC_MAX; i++)
++	{
++		//first, read the block number that has the inode in the directory
++		block_store_read(fs->bs, inode.data_ptrs[0], (void*)&idx, sizeof(uint8_t), sizeof(uint8_t)*i);
++		//then read the inode itself to extract the name and type
++		block_store_read(fs->bs, INODE_TO_BLOCK(idx), (void*)&tmp, sizeof(inode_t), INODE_INNER_OFFSET(idx));
++		if(!tmp.mdata.inUse) 
++		{
++			//I believe nothing special needs to be done...?
++		}
++		else
++		{
++			//realIdx so that there are no gaps in the array. If i was used, it might
++			//find blank inodes. Doubt it, but just in case. 
++			dirSize++;
++			records->contents[realIdx].ftype = tmp.mdata.type;
++			strcpy(records->contents[realIdx].fname, tmp.fname);
++			realIdx++;
++			//wait, I could just use dirSize...oh well might be useful to have 2 diff
++			//vars. 
++		}
++	}
++	//This is how many we actually found.
++	records->total = dirSize;
++
++	return 0;
++}
++
++bool doesExist(const F15FS_t* const fs, const char* TMPfname, ftype_t ftype, uint8_t toggle)
++{
++	//copy the entire path into a new string, because const char* seems to not like me.
++	char* fname = malloc(sizeof(char)*FNAME_MAX);
++	strcpy(fname, TMPfname);
++	char* token = strtok(fname, "/");
++	dir_rec_t records; 
++	//set up initial parent and child, in case we are looking under the root directory.
++	char* child = malloc(sizeof(char)*FNAME_MAX);
++	char* parent = malloc(sizeof(char)*FNAME_MAX);
++	strcpy(parent, token);
++	strcpy(child, fname+1);
++	while(1)
++	{
++		//see if the directory exists. See notes in the fxn
++		if(fs_get_dir(fs, parent, &records) == -1)
++		{
++			if(toggle == 1) return true;
++			if(toggle == 0) return false;
++		}
++		//the parent is the directory, so we see if we are doing something under
++		//that directory. 
++		token = strtok(NULL, "/");
++		if(token)
++		{
++			//set up the child to see if the child is in that directory.
++			strcpy(child, token);
++		}
++		size_t i;
++		for(i = 0; i < records.total; i++)
++		{
++			if(strcmp(records.contents[i].fname, child) == 0)
++			{
++				//attempts to find the child in the directory records. 
++				//If found, break out.
++				break;
++			}
++		}
++		if(i != records.total && (records.contents[i].ftype == ftype))
++		{
++			//toggle = 1 -> this fxn was called from fs_create_file, and ftype doesn't matter. 
++			//fs_create_file expects false, otherwise there's already a file with 
++			//that name there, whether it's a directory or reg file.
++			
++			//toggle = 0 -> this fxn was called from fs_write_file, and ftype is dir.
++			//fs_write_file expects true, otherwise either A) it wasn't found, or 
++			//B) we are writing to a directory, which is assumed to be not allowed.
++ 
++			//terrible way to control what this fxn does, oh well.
++			if(toggle == 1) return true;
++			if(toggle == 0) return false;
++		}	
++		if(!token)
++		{
++			//normal return for fs_write_file
++			if(toggle == 1) return true;
++			if(toggle == 0) return false;
++
++			return false;
++		}
++		//here we know we aren't done parsing, so there is another directory to explore.
++		strcpy(parent, token);
++	}
++}
++
++
+ 
+diff --git a/test/test.c b/test/test.c
+index c5c0351..dd6f11a 100644
+--- a/test/test.c
++++ b/test/test.c
+@@ -4,10 +4,13 @@
+ #include <string.h>
+ #include "../src/FonefiveFS.c"
+ 
++//#error "Select your spec by editing the line below this and removing this line!"
++#define DESCRIPTOR_TESTS 0
++// set to 1 to enable descriptor tests
+ 
+ #define assert(e) ((e) ? (true) : \
+                    (fprintf(stderr,"%s,%d: assertion '%s' failed\n",__FILE__, __LINE__, #e), \
+-                    fflush(stdout), abort()))
++                    fflush(stderr), fflush(stdout), abort()))
+ 
+ /*
+ 
+@@ -24,58 +27,197 @@
+     int fs_unmount(F15FS_t *fs);
+     1   Normal
+     2   NULL
+-    
++
++    int fs_create_file(F15FS_t *const fs, const char *const fname, const ftype_t ftype);
++    1. Normal, file, in root
++    2. Normal, directory, in root
++    3. Normal, file, not in root
++    4. Normal, directory, not in root
++    5. Error, NULL fs
++    6. Error, NULL fname
++    7. Error, empty fname
++    8. Error, bad type
++    9. Error, path does not exist
++    10. Error, Root clobber
++    11. Error, directory exists
++    12. Error, file exists
++    13. Error, part of path not directory
++    14. Error, path terminal not directory
++    15. Error, path string has no leading slash
++    16. Error, path has trailing slash (no name for desired file)
++    17. Error, bad path, path part too long (will fail right now?)
++    18. Error, bad path, desired filename too long
++    19. Error, directory full.
++    20. Error, out of inodes.
++    21. Error, out of data blocks & file is directory (requires functional write)
++
++    int fs_get_dir(const F15FS_t *const fs, const char *const fname, dir_rec_t *const records)
++    1. Normal, root I guess?
++    2. Normal, subdir somewhere
++    3. Normal, empty dir
++    4. Error, empty fname
++    5. Error, NULL fname
++    6. Error, NULL fs
++    7. Error, NULL records
++    8. Error, not a directory
++
++    int fs_open_file(F15FS_t *const fs, const char * const fname)
++    1. Normal, file at root
++    2. Normal, file in subdir
++    3. Normal, multiple fd to the same file
++    4. Error, NULL fs
++    5. Error, NULL fname
++    6. Error, empty fname
++    7. Error, not a regular file
++    8. Error, file does not exist
++    9. Error, out of descriptors
++
++    ssize_t fs_write_file(F15FS_t *const fs, const char *const fname, const void *data, size_t nbyte, size_t offset)
++    1. Normal, in a subdir, 0 size to < 1 block
++    2. Normal, in a subdir, < 1 block to next (also, test offset below size of file)
++    3. Normal, in a subdir, 0 size to 1 block
++    4. Normal, in a subdir, 1 block to next
++    5. Normal, in a subdir, 1 block to partial
++    6. Normal, in a subdir, direct -> indirect
++    7. Normal, in a subdir, indirect -> dbl_indirect
++    8. Normal, in a subdir, full file (run out of blocks before max file size :/ )
++    9. Error, file full/blocks full (also test fs_create_file 13)
++    10. Error, file does not exist
++    11. Error, file is a directory
++    12. Error, nbyte + offset rollover
++    13. Error, fs NULL
++    14. Error, fname NULL
++    15. Error, fname empty
++    16. Error, data NULL
++    17. Error, nbyte 0 (not an error...? Bad parameters? Hmm.)
++    18. Error, offset past end of file
++
++    ssize_t fs_write_file(F15FS_t *const fs, const int fd, const void *data, size_t nbyte);
++    1. Normal, in a subdir, 0 size to < 1 block
++    2. Normal, in a subdir, < 1 block to next
++    3. Normal, in a subdir, 0 size to 1 block
++    4. Normal, in a subdir, 1 block to next
++    5. Normal, in a subdir, 1 block to partial
++    6. Normal, in a subdir, direct -> indirect
++    7. Normal, in a subdir, indirect -> dbl_indirect
++    8. Normal, in a subdir, full file (run out of blocks before max file size :/ )
++    9. Error, file full/blocks full (also test fs_create_file 13)
++    10. Error, nbyte + position rollover
++    11. Error, fs NULL
++    12. Error, data NULL
++    13. Error, nbyte 0 (not an error...? Bad parameters? Hmm.)
++    14. Error, bad fd
++
++    ssize_t fs_read_file(F15FS_t *const fs, const char *const fname, void *data, size_t nbyte, size_t offset);
++    1. Normal, subdir, begin to < 1 block
++    2. Normal, subdir, < 1 block to part of next
++    3. Normal, subdir, whole block
++    4. Normal, subdir, multiple blocks
++    5. Normal, subdir, direct->indirect transition
++    6. Normal, subdir, indirect->dbl_indirect transition
++    7. Error, file does not exist
++    8. Error, file not a regular file
++    9. Error, NULL fs
++    10. Error, NULL fname
++    11. Error, empty fname
++    12. Error, NULL data
++    13. Error, nbyte 0 (not an error?)
++    14. Error, offset well past EOF
++    15. Error, offset AT EOF
++
++    ssize_t fs_read_file(F15FS_t *const fs, const int fd, void *data, size_t nbyte);
++    1. Normal, subdir, begin to < 1 block
++    2. Normal, subdir, < 1 block to part of next
++    3. Normal, subdir, whole block
++    4. Normal, subdir, multiple blocks
++    5. Normal, subdir, direct->indirect transition
++    6. Normal, subdir, indirect->dbl_indirect transition
++    7. Error, NULL fs
++    8. Error, NULL data
++    9. Error, nbyte 0 (not an error?)
++    10. Error, at EOF (not an error?)
++
+ */
+ 
+ // SIZES AND CREATION/MOUNT/UNMOUNT
+-void basic_tests_a();
++void tests_a();
++
++// CREATE FILE
++void tests_b();
+ 
++// FS_GET_DIR
++void tests_c();
+ 
+-void basic_tests_b();
++#if DESCRIPTOR_TESTS
+ 
++    // FS_OPEN_FILE
++    void tests_d();
+ 
+-void basic_tests_c();
++#endif
+ 
++// FS_WRITE_FILE
++void tests_e();
++
++// FS_READ_FILE
++void tests_f();
+ 
+-void basic_tests_d();
+ 
+ int main() {
+ 
+-    puts("Running autotests, sit back and relax, it'll be awhile...");
++    puts("Running autotests, sit back and relax, it'll be awhile...\n");
++
++    tests_a();
++
++    puts("\n\nA tests passed...\n");
+ 
+-    basic_tests_a();
++    tests_b();
+ 
+-    //puts("A tests passed...");
++    puts("\n\nB tests passed...\n");
+ 
+-    //basic_tests_b();
++    tests_c();
+ 
+-    //puts("B tests passed...");
++    puts("\n\nC tests passed...\n");
+ 
+-    //basic_tests_c();
++    #if DESCRIPTOR_TESTS
++    tests_d();
+ 
+-    //puts("C tests passed...");
++    puts("\n\nD tests passed...\n");
++    #endif
+ 
+-    //basic_tests_d();
++    tests_e();
+ 
+-    //puts("D tests passed...");
++    puts("\n\nE tests passed...\n");
++
++    tests_f();
++
++    puts("\n\nF tests passed...\n");
+ 
+     puts("TESTS COMPLETE");
+ 
+ }
+ 
+-void basic_tests_a() {
++void tests_a() {
++
++    char *test_fname = "a_tests.f15fs";
+ 
+-    // I heavily suggest you assert your struct sizes here
++    /*
++        assert(sizeof(mdata_t) == 48);
++        assert(sizeof(inode_t) == 128);
++        assert(sizeof(data_block_t) == 1024);
++        assert(sizeof(dir_ent_t) == 49);
++        assert(sizeof(dir_mdata_t) == 44);
++        assert(sizeof(dir_block_t) == 1024);
++    */
+ 
+     // FORMAT 1
+-    assert(fs_format("TESTFILE.f15fs") == 0);
++    assert(fs_format(test_fname) == 0);
+     // FORMAT 2
+     assert(fs_format(NULL) < 0);
+     // FORMAT 3
+     assert(fs_format("") < 0);
+ 
+     // MOUNT 1
+-    F15FS_t *fs = fs_mount("TESTFILE.f15fs");
++    F15FS_t *fs = fs_mount(test_fname);
+     assert(fs);
+     // MOUNT 2
+     assert(fs_mount(NULL) == NULL);
+@@ -89,17 +231,684 @@ void basic_tests_a() {
+ 
+ }
+ 
++// CREATE_FILE
++void tests_b() {
++    const char *(filenames[13]) = {
++        "/file", "/folder", "/folder/with_file", "/folder/with_folder",
++        "/DOESNOTEXIST", "/file/BAD_REQUEST", "/DOESNOTEXIST/with_file", "/folder/with_file/bad_req",
++        "folder/missing_slash", "/folder/new_folder/", "/folder/withwaytoolongfilenamethattakesupmorespacethanitshould/bad_req",
++        "/folder/withfilethatiswayyyyytoolongwhydoyoumakefilesthataretoobig", "/"
++    };
++
++    const char *(test_fname[2]) = {"b_tests_normal.f15fs", "b_tests_full_table.f15fs"};
++
++    assert(fs_format(test_fname[0]) == 0);
++
++    F15FS_t *fs = fs_mount(test_fname[0]);
++
++    assert(fs);
++
++    // CREATE_FILE 1
++    assert(fs_create_file(fs, filenames[0], REGULAR) == 0);
++
++    // CREATE_FILE 2
++    assert(fs_create_file(fs, filenames[1], DIRECTORY) == 0);
++
++    // CREATE_FILE 3
++    assert(fs_create_file(fs, filenames[2], REGULAR) == 0);
++
++    // CREATE_FILE 4
++    assert(fs_create_file(fs, filenames[3], DIRECTORY) == 0);
++
++    // CREATE_FILE 5
++    assert(fs_create_file(NULL, filenames[4], REGULAR) < 0);
++
++    // CREATE_FILE 6
++    assert(fs_create_file(fs, NULL, REGULAR) < 0);
++
++    // CREATE_FILE 7
++    assert(fs_create_file(fs, "", REGULAR) < 0);
++
++    // CREATE_FILE 8
++    assert(fs_create_file(fs, "", 44) < 0);
++
++    // CREATE_FILE 9
++    assert(fs_create_file(fs, filenames[6], REGULAR) < 0);
++
++    // CREATE_FILE 10
++    assert(fs_create_file(fs, filenames[12], DIRECTORY) < 0);
++
++    // CREATE_FILE 11
++    assert(fs_create_file(fs, filenames[1], DIRECTORY) < 0);
++    assert(fs_create_file(fs, filenames[1], REGULAR) < 0);
++
++    // CREATE_FILE 12
++    assert(fs_create_file(fs, filenames[0], REGULAR) < 0);
++    assert(fs_create_file(fs, filenames[0], DIRECTORY) < 0);
++
++    // CREATE_FILE 13
++    assert(fs_create_file(fs, filenames[5], REGULAR) < 0);
++
++    // CREATE_FILE 14
++    assert(fs_create_file(fs, filenames[7], REGULAR) < 0);
++
++    // CREATE_FILE 15
++    //assert(fs_create_file(fs, filenames[8], REGULAR) < 0);
++    // Hmm, because of the way strtok works, this fails.
++    // But if we don't support relative paths, is there a reason to force abolute notation?
++    // It's really a semi-arbitrary restriction
++    // I suppose relative paths are up to the implementation, since . and .. are just special folder entires
++    // but that would mess with the directory content total, BUT extra parsing can work around that.
++    // Hmmmm.
++
++    // CREATE_FILE 16
++    assert(fs_create_file(fs, filenames[9], DIRECTORY) < 0);
++
++    // CREATE_FILE 17
++    assert(fs_create_file(fs, filenames[10], REGULAR) < 0);
++
++    // CREATE_FILE 18
++    assert(fs_create_file(fs, filenames[11], REGULAR) < 0);
++
++    // CREATE_FILE 19 - OUT OF INODES (and test 18 along the way)
++    // Gotta make... Uhh... A bunch of files. (255, but we'll need directories to hold them as well)
++    // Closing this file now for inspection to make sure these tests didn't mess it up
++    // There should be... 3 allocated data blocks and 5 inodes in use
++
++    fs_unmount(fs);
++
++	exit(0);
++    assert(fs_format(test_fname[1]) == 0);
++
++    fs = fs_mount(test_fname[1]);
++
++    assert(fs);
++
++    {
++        //puts("Attempting to fill inode table...");
++
++        // Dummy string to loop with
++        char fname[] = "/a/a";
++        // If we do basic a-z, with a-z contained in each, that's... 26*20 which is ~2x as much as we need
++        // Gotta do the math on when this should fail to set the right bounds
++
++        // 12 dirs of 20, remainder is... 3 inodes (dir and 2 files)
++        for (char dir = 'a'; dir < 'm'; fname[1] = ++dir) {
++            fname[2] = '\0';
++            assert(fs_create_file(fs, fname, DIRECTORY) == 0);
++            //printf("File: %s\n",fname);
++            fname[2] = '/';
++            for (char file = 'a'; file < 'u'; fname[3] = ++file) {
++                //printf("File: %s\n",fname);
++                assert(fs_create_file(fs, fname, REGULAR) == 0);
++            }
++        }
++
++        // CREATE_FILE 19
++        assert(fs_create_file(fs, "/a/z", REGULAR) < 0);
++
++        // Catch up to finish creation
++        fname[1] = 'm';
++        fname[2] = '\0';
++        //printf("File: %s\n",fname);
++        assert(fs_create_file(fs, fname, DIRECTORY) == 0);
++
++        fname[2] = '/';
++        fname[3] = 'a';
++        //printf("File: %s\n",fname);
++        assert(fs_create_file(fs, fname, REGULAR) == 0);
++
++        fname[3] = 'b';
++        //printf("File: %s\n",fname);
++        assert(fs_create_file(fs, fname, REGULAR) == 0);
++        //puts("Inode table full?");
++
++        // This should fail, no more inodes.
++        // CREATE_FILE 20
++        fname[3] = 'c';
++        assert(fs_create_file(fs, fname, REGULAR) < 0);
++
++    }
++    // save file for inspection
++    fs_unmount(fs);
++
++    // ... Can't really test 20 yet.
++}
++
++void print_dir_records(const char *const fname, const dir_rec_t *const records) {
++    if (fname && records) {
++        printf("\n*** DIRECTORY RECORD ***\n");
++        printf("* DIRECTORY: %s\n", fname);
++        printf("* ENTRIES: %d\n", records->total);
++        for (unsigned i = 0; i < records->total; ++i) {
++            printf("* %d:\t%s - %s\n", i, records->contents[i].fname,
++                   ((records->contents[i].ftype == REGULAR) ? "REGULAR" :
++                    ((records->contents[i].ftype == DIRECTORY) ? "DIRECTORY" :
++                     "UNKNOWN")));
++        }
++        printf("****** RECORD END ******\n\n");
++        return;
++    }
++    assert(false /* tester broken? */);
++}
++
++bool check_record_for_file(const char *const fname, const ftype_t ftype, const dir_rec_t *const records) {
++    if (fname && records) {
++        for (unsigned i = 0; i < records->total; ++i) {
++            // Technically this may be risky since strncmp
++            // Doesn't say when it will stop
++            // and fname probably won't be FNAME_MAX in length
++            // But at least my fname will be properly terminated
++            // So it should cause strncmp to stop first
++            if (strncmp(records->contents[i].fname, fname, FNAME_MAX) == 0) {
++                return (records->contents[i].ftype == ftype);
++            }
++        }
++        return false;
++    } else {
++        assert(false /* tester broken? */);
++    }
++}
++
++// FS_GET_DIR
++void tests_c() {
++
++    // We'll ref the files from the b tests, but copy them over first
++    // Just in case it changes anything
++    assert(system("cp b_tests_normal.f15fs c_tests_normal.f15fs") == 0);
++    const char *test_fname = "c_tests_normal.f15fs";
++    const char *(filenames[13]) = {
++        "/file", "/folder", "/folder/with_file", "/folder/with_folder",
++        "/DOESNOTEXIST", "/file/BAD_REQUEST", "/DOESNOTEXIST/with_file", "/folder/with_file/bad_req",
++        "folder/missing_slash", "/folder/new_folder/", "/folder/withwaytoolongfilenamethattakesupmorespacethanitshould/bad_req",
++        "/folder/withfilethatiswayyyyytoolongwhydoyoumakefilesthataretoobig", "/"
++    };
++
++    F15FS_t *fs = fs_mount(test_fname);
++    // This should have root, folder, file, folder/with_file, folder/with_folder
++
++    dir_rec_t record_struct;
++    // FS_GET_DIR 1
++    assert(fs_get_dir(fs, filenames[12], &record_struct) == 0);
++    print_dir_records(filenames[12], &record_struct);
++    assert(record_struct.total == 2);
++    assert(check_record_for_file(strrchr(filenames[0], '/') + 1, REGULAR, &record_struct));
++    assert(check_record_for_file(strrchr(filenames[1], '/') + 1, DIRECTORY, &record_struct));
++
++    // FS_GET_DIR 2
++    assert(fs_get_dir(fs, filenames[1], &record_struct) == 0);
++    print_dir_records(filenames[1], &record_struct);
++    assert(record_struct.total == 2);
++    assert(check_record_for_file(strrchr(filenames[2], '/') + 1, REGULAR, &record_struct));
++    assert(check_record_for_file(strrchr(filenames[3], '/') + 1, DIRECTORY, &record_struct));
++
++    // FS_GET_DIR 3
++    assert(fs_get_dir(fs, filenames[3], &record_struct) == 0);
++    print_dir_records(filenames[3], &record_struct);
++    assert(record_struct.total == 0);
++
++    // FS_GET_DIR 4
++    assert(fs_get_dir(fs, "", &record_struct) < 0);
++
++    // FS_GET_DIR 5
++    assert(fs_get_dir(fs, NULL, &record_struct) < 0);
++
++    // FS_GET_DIR 6
++    assert(fs_get_dir(NULL, filenames[12], &record_struct) < 0);
++
++    // FS_GET_DIR 7
++    assert(fs_get_dir(fs, filenames[12], NULL) < 0);
++
++    // FS_GET_DIR 8
++    assert(fs_get_dir(fs, filenames[0], &record_struct) < 0);
++
++    assert(fs_unmount(fs) == 0);
++}
++
++#if DESCRIPTOR_TESTS
++
++// FS_OPEN_FILE
++void tests_d() {
++    // Once again, just borrow B's file.
++    assert(system("cp b_tests_normal.f15fs d_tests.f15fs") == 0);
++
++    const char *test_fname = "d_tests.f15fs";
++    const char *(filenames[13]) = {
++        "/file", "/folder", "/folder/with_file", "/folder/with_folder",
++        "/DOESNOTEXIST", "/file/BAD_REQUEST", "/DOESNOTEXIST/with_file", "/folder/with_file/bad_req",
++        "folder/missing_slash", "/folder/new_folder/", "/folder/withwaytoolongfilenamethattakesupmorespacethanitshould/bad_req",
++        "/folder/withfilethatiswayyyyytoolongwhydoyoumakefilesthataretoobig", "/"
++    };
++
++    F15FS_t *fs = fs_mount(test_fname);
++    assert(fs);
++
++    // FS_OPEN_FILE 1
++    assert(fs_open_file(fs, filenames[0]) >= 0);
++
++    // FS_OPEN_FILE 2
++    assert(fs_open_file(fs, filenames[2]) >= 0);
++
++    // FS_OPEN_FILE 3
++    assert(fs_open_file(fs, filenames[2]) >= 0);
++
++    // FS_OPEN_FILE 4
++    assert(fs_open_file(NULL, filenames[2]) < 0);
++
++    // FS_OPEN_FILE 5
++    assert(fs_open_file(fs, NULL) < 0);
++
++    // FS_OPEN_FILE 6
++    assert(fs_open_file(fs, "") < 0);
++
++    // FS_OPEN_FILE 7
++    assert(fs_open_file(fs, filenames[1]) < 0);
++
++    // FS_OPEN_FILE 8
++    assert(fs_open_file(fs, filenames[4]) < 0);
++
++    // FS_OPEN_FILE 9
++    // we have... 3 open so far
++    for (unsigned i = 3; i < 256; ++i) {
++        assert(fs_open_file(fs, filenames[2]) >= 0);
++    }
++    // So this should fail
++    assert(fs_open_file(fs, filenames[2]) < 0);
++
++    assert(fs_unmount(fs));
++
++}
++
++// FS_WRITE_FILE - DESCRIPTOR
++void tests_e() {
++    // Terrible tests for a terrible function
++
++    // Once again, just borrow B's file.
++    assert(system("cp b_tests_normal.f15fs e_tests_normal.f15fs") == 0);
++
++    const char *(test_fname[2]) = {"e_tests_normal.f15fs", "e_tests_full.f15fs"};
++    const char *(filenames[13]) = {
++        "/file", "/folder", "/folder/with_file", "/folder/with_folder",
++        "/DOESNOTEXIST", "/file/BAD_REQUEST", "/DOESNOTEXIST/with_file", "/folder/with_file/bad_req",
++        "folder/missing_slash", "/folder/new_folder/", "/folder/withwaytoolongfilenamethattakesupmorespacethanitshould/bad_req",
++        "/folder/withfilethatiswayyyyytoolongwhydoyoumakefilesthataretoobig", "/"
++    };
++
++    F15FS_t *fs = fs_mount(test_fname[0]);
++    assert(fs);
++
++    uint8_t file_data[4096];
++    memset(file_data, 1, 4096);
++
++
++    int fd;
++    fd = fs_open_file(fs, filenames[2]);
++    assert(fd >= 0);
++
++    // FS_WRITE_FILE 1
++    assert(fs_write_file(fs, fd, file_data, 300) == 300);
++
++    // FS_WRITE_FILE 2
++    assert(fs_write_file(fs, fs, file_data, 824, 200) == 824); // file[2] goes to 1024
++
++
++    fd = fs_open_file(fs, filenames[0]);
++    assert(fd >= 0);
++
++    // FS_WRITE_FILE 3
++    assert(fs_write_file(fs, fd, file_data, 1024) == 1024); // file[0] goes to 1024
++
++    // FS_WRITE_FILE 4
++    assert(fs_write_file(fs, fd, file_data, 1024) == 1024); // file[0] goes to 2048 now
++
++    // FS_WRITE_FILE 5
++    assert(fs_write_file(fs, fd, file_data, 300) == 300); // file[2] goes to 2348 now
++
++    // FS_WRITE_FILE 6
++    assert(fs_write_file(fs, fd, file_data, 4095) == 4095); // file[0] goes to 6143 now, 1 before end of directs
++    assert(fs_write_file(fs, fd, file_data, 1025) == 1025); // file[0] goes to 7168, 1 block into indirect
++
++    // FS_WRITE_FILE 7
++    // Need to fill out... 256 more blocks to put us 1 into double indirect
++    for (int i = 0; i < 256; ++i) {
++        assert(fs_write_file(fs, fd, file_data, 1024) == 1024);
++    }
++    // File's into double indirect
++
++    fs_unmount(fs);
++
++    assert(fs_format(filenames[1]) == 0);
++    fs = fs_mount(filenames[1]);
++    assert(fs);
++
++    assert(fs_create_file(fs, filenames[0], REGULAR) == 0);
++
++    fd = fs_open_file(fs, filenames[0]);
++    assert(fd >= 0);
++
++    // Going to fill the fs with a single file
++    for (unsigned i = 0; i < 65239; ++i) {
++        assert(fs_write_file(fs, fd, file_data) == 1024);
++    }
++    // File system is now FULL.
++    // Throw in that test for FS_CREATE_FILE
++
++    // FS_CREATE_FILE 13
++    assert(fs_create_file(fs, filenames[1], DIRECTORY) < 0);
++
++    // FS_WRITE_FILE 9
++    assert(fs_write_file(fs, fd, file_data, 1024) < 0); // out of room should be an error, not a 0 written
++
++    assert(fs_unmount(fs) == 0);
++
++    fs = fs_mount(test_fname[0]);
++    assert(fs);
++
++    fd = fs_open_file(fs, filenames[2]);
++    assert(fd >= 0);
++
++    // FS_WRITE_FILE 10
++    assert(fs_write_file(fs, fd, file_data, 1024) == 1024);
++    assert(fs_write_file(fs, fd, file_data, SIZE_MAX - 512) == 1024);
++
++    // FS_WRITE_FILE 11
++    fd = fs_open_file(filenames[2]);
++    assert(fd >= 0);
++    assert(fs_write_file(NULL, fd, file_data, 300) < 0);
++
++    // FS_WRITE_FILE 12
++    assert(fs_write_file(fs, fd, NULL, 300, 0) < 0);
++
++    // FS_WRITE_FILE 13
++    assert(fs_write_file(fs, fd, file_data, 0) <= 0); // Allow an error or 0 written
++
++    // FS_WRITE_FILE 14
++    assert(fs_write_file(fs, 9999, file_data, 0) < 0);
++
++    assert(fs_unmount(fs) == 0);
++
++}
++
++// FS_READ_FILE - DESCRIPTOR
++void tests_f() {
++
++    assert(system("cp e_tests_normal.f15fs f_tests_normal.f15fs") == 0);
++
++    const char *test_fname = "f_tests_normal.f15fs";
++    const char *(filenames[13]) = {
++        "/file", "/folder", "/folder/with_file", "/folder/with_folder",
++        "/DOESNOTEXIST", "/file/BAD_REQUEST", "/DOESNOTEXIST/with_file", "/folder/with_file/bad_req",
++        "folder/missing_slash", "/folder/new_folder/", "/folder/withwaytoolongfilenamethattakesupmorespacethanitshould/bad_req",
++        "/folder/withfilethatiswayyyyytoolongwhydoyoumakefilesthataretoobig", "/"
++    };
++
++    // file 0 should go into double_indirect, file 2 goes to 1024
++
++    F15FS_t *fs = fs_mount(test_fname);
++    assert(fs);
++
++    uint8_t read_space[4096];
++    uint8_t check_val[4096];
++    memset(check_val, 1, 4096); // Didn't actually write any other values
++
++
++    int fd[2];
++    fd[0] = fs_open_file(fs, filenames[0]);
++    fd[1] = fs_open_file(fs, filenames[2]);
++    assert(fd[0] >= 0);
++    assert(fd[1] >= 0);
++
++    // FS_READ_FILE 1
++    assert(fs_read_file(fs, fd[1], read_space, 300) == 300);
++    assert(memcmp(read_space, check_val, 300) == 0);
+ 
+-void basic_tests_b() {
++    // FS_READ_FILE 2
++    assert(fs_read_file(fs, fd[0], read_space, 512) == 512);
++    assert(fs_read_file(fs, fd[0], read_space, 1024) == 1024);
++    assert(memcmp(read_space, check_val, 1536) == 0);
++
++    assert(fs_read_file(fs, fd[0], read_space, 512) == 512); // jump to end of block for other tests
++
++    // FS_READ_FILE 3
++    assert(fs_read_file(fs, fd[0], read_space, 1024) == 1024);
++    assert(memcmp(read_space, check_val, 1024) == 0);
++
++    // FS_READ_FILE 4
++    assert(fs_read_file(fs, fd[0], read_space, 2048) == 2048);
++    assert(memcmp(read_space, check_val, 2048) == 0);
++
++    // FS_READ_FILE 5
++    assert(fs_read_file(fs, fd[0], read_space, 2048) == 2048);
++    assert(memcmp(read_space, check_val, 2048) == 0);
++
++    // we have read 7 blocks. we have to jump ahead... 254 and then, eh, 1.5
++    for (unsigned i = 0; i < 254; ++i) {
++        assert(fs_read_file(fs, fd[0], read_space, 1024) == 1024);
++        assert(memcmp(read_space, check_val, 1024) == 0);
++    }
++
++    // FS_READ_FILE 6
++    assert(fs_read_file(fs, fd[0], read_space, 1536) == 1536);
++    assert(memcmp(read_space, check_val, 1536) == 0);
++
++    // FS_READ_FILE 7
++    assert(fs_read_file(NULL, fd[0], read_space, 10) < 0);
++
++    // FS_READ_FILE 8
++    assert(fs_read_file(fs, fd[0], NULL, 10, 0) < 0);
++
++    // FS_READ_FILE 9
++    assert(fs_read_file(fs, fd[0], read_space, 0) <= 0);
++
++    // FS_READ_FILE 10
++    // I've actually sortof lost track, but we should be within 4 blocks of then end (should be 512B left?)
++    // Request 4 blocks, that should get us to EOF, then request more.
++    assert(fs_read_file(fs, fd[0], read_space, 4096) > 0);
++    // This shoudl fail, or return 0
++    assert(fs_read_file(fs, fd[0], read_space, 4096) <= 0);
++
++    assert(fs_unmount(fs) == 0);
+ 
+ }
+ 
++#else
++
++
++// FS_WRITE_FILE
++void tests_e() {
++    // Terrible tests for a terrible function
++
++
++    // Once again, just borrow B's file.
++    assert(system("cp b_tests_normal.f15fs e_tests_normal.f15fs") == 0);
++
++    const char *(test_fname[2]) = {"e_tests_normal.f15fs", "e_tests_full.f15fs"};
++    const char *(filenames[13]) = {
++        "/file", "/folder", "/folder/with_file", "/folder/with_folder",
++        "/DOESNOTEXIST", "/file/BAD_REQUEST", "/DOESNOTEXIST/with_file", "/folder/with_file/bad_req",
++        "folder/missing_slash", "/folder/new_folder/", "/folder/withwaytoolongfilenamethattakesupmorespacethanitshould/bad_req",
++        "/folder/withfilethatiswayyyyytoolongwhydoyoumakefilesthataretoobig", "/"
++    };
++
++    F15FS_t *fs = fs_mount(test_fname[0]);
++    assert(fs);
++
++    uint8_t file_data[4096];
++    memset(file_data, 1, 4096);
++
++
++    // FS_WRITE_FILE 1
++    assert(fs_write_file(fs, filenames[2], file_data, 300, 0) == 300);
++
++    // FS_WRITE_FILE 2
++    assert(fs_write_file(fs, filenames[2], file_data, 824, 200) == 824); // file[2] goes to 1024
+ 
+-void basic_tests_c() {
++    // FS_WRITE_FILE 3
++    assert(fs_write_file(fs, filenames[0], file_data, 1024, 0) == 1024); // file[0] goes to 1024
++
++    // FS_WRITE_FILE 4
++    assert(fs_write_file(fs, filenames[0], file_data, 1024, 1024) == 1024); // file[0] goes to 2048 now
++
++    // FS_WRITE_FILE 5
++    assert(fs_write_file(fs, filenames[0], file_data, 300, 2048) == 300); // file[0] goes to 2348 now
++
++    // FS_WRITE_FILE 6
++    assert(fs_write_file(fs, filenames[0], file_data, 3795, 2048) == 3795); // file[0] goes to 6143 now, 1 before end of directs
++    assert(fs_write_file(fs, filenames[0], file_data, 1025, 6143) == 1025); // file[0] goes to 7168, 1 block into indirect
++
++    // FS_WRITE_FILE 7
++    for (int i = 0; i < 256; ++i) {
++        assert(fs_write_file(fs, filenames[0], file_data, 1024, 7168 + i * 1024) == 1024);
++    }
++    // File's one block into double indirect
++
++    fs_unmount(fs);
++
++    assert(fs_format(test_fname[1]) == 0);
++    fs = fs_mount(test_fname[1]);
++    assert(fs);
++
++    assert(fs_create_file(fs, filenames[0], REGULAR) == 0);
++
++    // Going to fill the fs with a single file
++    // That's 65239 blocks worth of file data
++    // A file can hold 65798 blocks, but we have less in the block store
++    // AND indirects and double indirects take up space
++    // so it comes up to fewer blocks than you'd expect. A fresh F15FS has 65536 - 41 free (65495)
++    // We get 6 directs through our inode, so 6 file blocks, 65489 free
++    // now we have to start allocating indirects. We get one indirect in out inode, and it gives us 256 blocks
++    // 262 file blocks, 1 overhead, 65232 free
++    // Now we make our double indirect (and others, but taking this in steps), it is an overhead of 1 for 256 indirects
++    // 262 file, 2 overhead, 65231 free
++    // From here we have room for 256 indirects, each indirect taking 256 file blocks, and 1 overhead
++    // 256 * 257 is 65792, though, so we don't max out the double indirect
++    // 65231/257 = 253.81, so we get 254 indirects, but one isn't completely full
++    // Not counting the contents of the partially filled indirect (but counting the indirect itself), we have
++    // 65030 file blocks, 256 overhead, and 209 free, which goes in that last indirect, so in total, one file can take up
++    // 65239 file blocks, with 256 overhead, and 0 free blocks remaining
++
++    for (unsigned i = 0; i < 65239; ++i) {
++        assert(fs_write_file(fs, filenames[0], file_data, 1024, i * 1024) == 1024);
++    }
++    // File system is now FULL.
++    // Throw in that test for FS_CREATE_FILE
++
++    // FS_CREATE_FILE 13
++    assert(fs_create_file(fs, filenames[1], DIRECTORY) < 0);
++
++    // FS_WRITE_FILE 9
++    assert(fs_write_file(fs, filenames[0], file_data, 1024, 65495 * 1024) < 0); // out of room should be an error, not a 0 written
++
++    assert(fs_unmount(fs) == 0);
++
++    fs = fs_mount(test_fname[0]);
++    assert(fs);
++
++    // FS_WRITE_FILE 10
++    assert(fs_write_file(fs, filenames[4], file_data, 300, 0) < 0);
++
++    // FS_WRITE_FILE 11
++    assert(fs_write_file(fs, filenames[1], file_data, 300, 0) < 0);
++
++    // FS_WRITE_FILE 12
++    assert(fs_write_file(fs, filenames[2], file_data, SIZE_MAX - 3, 10) < 0);
++
++    // FS_WRITE_FILE 13
++    assert(fs_write_file(NULL, filenames[2], file_data, 300, 0) < 0);
++
++    // FS_WRITE_FILE 14
++    assert(fs_write_file(fs, NULL, file_data, 300, 0) < 0);
++
++    // FS_WRITE_FILE 15
++    assert(fs_write_file(fs, "", file_data, 300, 0) < 0);
++
++    // FS_WRITE_FILE 16
++    assert(fs_write_file(fs, filenames[2], NULL, 300, 0) < 0);
++
++    // FS_WRITE_FILE 17
++    assert(fs_write_file(fs, filenames[2], file_data, 0, 0) <= 0); // Allow an error or 0 written
++
++    // FS_WRITE_FILE 18
++    assert(fs_write_file(fs, filenames[2], file_data, 300, 4096) < 0);
++
++    assert(fs_unmount(fs) == 0);
+ 
+ }
+ 
+-void basic_tests_d() {
++// FS_READ_FILE
++void tests_f() {
+ 
++    assert(system("cp e_tests_normal.f15fs f_tests_normal.f15fs") == 0);
++
++    const char *test_fname = "f_tests_normal.f15fs";
++    const char *(filenames[13]) = {
++        "/file", "/folder", "/folder/with_file", "/folder/with_folder",
++        "/DOESNOTEXIST", "/file/BAD_REQUEST", "/DOESNOTEXIST/with_file", "/folder/with_file/bad_req",
++        "folder/missing_slash", "/folder/new_folder/", "/folder/withwaytoolongfilenamethattakesupmorespacethanitshould/bad_req",
++        "/folder/withfilethatiswayyyyytoolongwhydoyoumakefilesthataretoobig", "/"
++    };
++
++    // file 0 should go into double_indirect, file 2 goes to 1024
++
++    F15FS_t *fs = fs_mount(test_fname);
++    assert(fs);
++
++    uint8_t read_space[4096];
++    uint8_t check_val[4096];
++    memset(check_val, 1, 4096); // Didn't actually write any other values
++
++    // FS_READ_FILE 1
++    assert(fs_read_file(fs, filenames[2], read_space, 300, 0) == 300);
++    assert(memcmp(read_space, check_val, 300) == 0);
++
++    // FS_READ_FILE 2
++    assert(fs_read_file(fs, filenames[0], read_space, 1024, 512) == 1024);
++    assert(memcmp(read_space, check_val, 1024) == 0);
++
++    // FS_READ_FILE 3
++    assert(fs_read_file(fs, filenames[0], read_space, 1024, 1024) == 1024);
++    assert(memcmp(read_space, check_val, 1024) == 0);
++
++    // FS_READ_FILE 4
++    assert(fs_read_file(fs, filenames[0], read_space, 4096, 1024) == 4096);
++    assert(memcmp(read_space, check_val, 4096) == 0);
++
++    // FS_READ_FILE 5
++    assert(fs_read_file(fs, filenames[0], read_space, 4096, 4096) == 4096);
++    assert(memcmp(read_space, check_val, 4096) == 0);
++
++    // FS_READ_FILE 6
++    assert(fs_read_file(fs, filenames[0], read_space, 2048, 267264) == 2048);
++    assert(memcmp(read_space, check_val, 1024) == 0);
++
++    // FS_READ_FILE 7
++    assert(fs_read_file(fs, filenames[5], read_space, 300, 0) < 0);
++
++    // FS_READ_FILE 8
++    assert(fs_read_file(fs, filenames[1], read_space, 300, 0) < 0);
++
++    // FS_READ_FILE 9
++    assert(fs_read_file(NULL, filenames[0], read_space, 300, 0) < 0);
++
++    // FS_READ_FILE 10
++    assert(fs_read_file(fs, NULL, read_space, 300, 0) < 0);
++
++    // FS_READ_FILE 11
++    assert(fs_read_file(fs, "", read_space, 300, 0) < 0);
++
++    // FS_READ_FILE 12
++    assert(fs_read_file(fs, filenames[0], NULL, 300, 0) < 0);
++
++    // FS_READ_FILE 13
++    assert(fs_read_file(fs, filenames[0], read_space, 0, 0) <= 0);
++
++    // FS_READ_FILE 14
++    assert(fs_read_file(fs, filenames[2], NULL, 300, 4173) < 0);
++
++    // FS_READ_FILE 15
++    assert(fs_read_file(fs, filenames[0], NULL, 300, 1024) < 0);
++
++    assert(fs_unmount(fs) == 0);
+ 
+ }
++#endif

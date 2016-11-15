@@ -1,0 +1,2 @@
+/home/djry35/OSF15_Project2/build/CMakeFiles/FonefiveFS.dir
+/home/djry35/OSF15_Project2/build/CMakeFiles/FonefiveFS_tester.dir

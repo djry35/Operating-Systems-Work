@@ -1,0 +1,32 @@
+#IncludeRegexLine: ^[ 	]*#[ 	]*(include|import)[ 	]*[<"]([^">]+)([">])
+
+#IncludeRegexScan: ^.*$
+
+#IncludeRegexComplain: ^$
+
+#IncludeRegexTransform: 
+
+/home/djry35/OSF15_Exercise3/include/page_swap.h
+stdbool.h
+-
+block_store.h
+-
+
+/home/djry35/OSF15_Exercise3/test/runner.c
+stdio.h
+-
+string.h
+-
+assert.h
+-
+stdlib.h
+-
+time.h
+-
+inttypes.h
+-
+dyn_array.h
+-
+../include/page_swap.h
+/home/djry35/OSF15_Exercise3/include/page_swap.h
+

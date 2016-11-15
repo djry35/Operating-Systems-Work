@@ -1,0 +1,6 @@
+/usr/local/lib/libdyn_array.so
+/usr/local/include/dyn_array.h
+/usr/local/lib/libbitmap.so
+/usr/local/include/bitmap.h
+/usr/local/lib/libblock_store.so
+/usr/local/include/block_store.h

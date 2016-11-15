@@ -1,0 +1,1 @@
+/usr/bin/cc  -g -std=c99 -Werror    CMakeFiles/runner.dir/test/runner.c.o  -o runner -rdynamic libpage_swap.so /usr/local/lib/libdyn_array.so /usr/local/lib/libblock_store.so /usr/local/lib/libdyn_array.so -Wl,-rpath,/home/djry35/OSF15_Exercise3/build:/usr/local/lib 

@@ -1,0 +1,1 @@
+/usr/bin/cc  -std=c99 -Wall -Werror -g -O0    CMakeFiles/bs_tester.dir/test/test.c.o  -o bs_tester -rdynamic /usr/local/lib/libbitmap.so -Wl,-rpath,/usr/local/lib 

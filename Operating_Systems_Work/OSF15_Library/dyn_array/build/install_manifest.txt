@@ -1,0 +1,2 @@
+/usr/local/lib/libdyn_array.so
+/usr/local/include/dyn_array.h

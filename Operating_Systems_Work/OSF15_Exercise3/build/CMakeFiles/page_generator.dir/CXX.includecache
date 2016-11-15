@@ -1,0 +1,26 @@
+#IncludeRegexLine: ^[ 	]*#[ 	]*(include|import)[ 	]*[<"]([^">]+)([">])
+
+#IncludeRegexScan: ^.*$
+
+#IncludeRegexComplain: ^$
+
+#IncludeRegexTransform: 
+
+/home/djry35/OSF15_Exercise3/src/page_generator.cpp
+iostream
+-
+fstream
+-
+random
+-
+cstdint
+-
+exception
+-
+memory
+-
+functional
+-
+arpa/inet.h
+-
+

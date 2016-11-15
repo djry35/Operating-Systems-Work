@@ -1,0 +1,1 @@
+/usr/bin/cc  -fPIC -std=gnu99 -Wall -Werror -g -O0   -shared -Wl,-soname,libFonefiveFS.so -o libFonefiveFS.so CMakeFiles/FonefiveFS.dir/src/FonefiveFS.c.o /usr/local/lib/libblock_store.so -Wl,-rpath,/usr/local/lib: 

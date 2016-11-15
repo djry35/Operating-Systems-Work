@@ -1,0 +1,38 @@
+#IncludeRegexLine: ^[ 	]*#[ 	]*(include|import)[ 	]*[<"]([^">]+)([">])
+
+#IncludeRegexScan: ^.*$
+
+#IncludeRegexComplain: ^$
+
+#IncludeRegexTransform: 
+
+/home/djry35/OSF15_Exercise2/bs/include/block_store.h
+stdint.h
+-
+bitmap.h
+-
+fcntl.h
+-
+sys/stat.h
+-
+errno.h
+-
+unistd.h
+-
+
+/home/djry35/OSF15_Exercise2/bs/src/block_store.c
+../include/block_store.h
+/home/djry35/OSF15_Exercise2/bs/include/block_store.h
+
+/home/djry35/OSF15_Exercise2/bs/test/test.c
+stdio.h
+-
+stdint.h
+-
+stdlib.h
+-
+string.h
+-
+../src/block_store.c
+/home/djry35/OSF15_Exercise2/bs/src/block_store.c
+
